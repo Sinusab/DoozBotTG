@@ -7,7 +7,7 @@ import asyncio
 import logging
 
 # تنظیم لاگ برای دیباگ
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # دیکشنری‌های سراسری برای ذخیره وضعیت بازی
