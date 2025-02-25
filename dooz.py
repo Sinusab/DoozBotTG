@@ -183,10 +183,13 @@ def main():
             raise ValueError("توکن در متغیرهای محیطی پیدا نشد!")
             
         app = Application.builder().token(token).build()
+        # اضافه کردن اطمینان از حذف وب‌هوک در صورت وجود
+        app.bot.delete_webhook(drop_pending_updates=True)
+        
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_\d+_\d+$"))  # پترن دقیق‌تر
         app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن دقیق‌تر
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
 
