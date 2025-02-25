@@ -7,7 +7,7 @@ import asyncio
 import logging
 
 # تنظیم لاگ برای دیباگ
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # دیکشنری‌های سراسری برای ذخیره وضعیت بازی
@@ -53,11 +53,12 @@ async def start(update: Update, context: CallbackContext):
         f"@{username}، برای شروع بازی روی دکمه کلیک کن!",
         reply_markup=reply_markup
     )
+    logger.info(f"User {username} started the bot in chat {chat_id}")
 
 # پیدا کردن حریف و شروع بازی
 async def find_player(update: Update, context: CallbackContext):
     query = update.callback_query
-    logger.info(f"Callback received: {query.data}")
+    logger.info(f"Callback received: data={query.data}, user_id={query.from_user.id}, chat_id={query.message.chat_id}")
     await query.answer()  # پاسخ سریع به کلیک کاربر
     
     user_id = query.from_user.id
@@ -65,15 +66,28 @@ async def find_player(update: Update, context: CallbackContext):
     username = query.from_user.username or f"کاربر_{user_id}"
 
     if not query.data.startswith("ready_"):
-        logger.warning("Invalid callback data format")
+        logger.warning(f"Invalid callback data format: {query.data}")
+        await query.answer("داده نادرست است!")
         return
 
     try:
-        _, chat_id_str, user_id_str = query.data.split("_")
-        expected_chat_id = int(chat_id_str)
-        ready_user_id = int(user_id_str)
+        # پارسیگ دقیق‌تر داده‌های callback
+        parts = query.data.split("_")
+        if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            logger.error(f"Invalid callback data structure: {query.data}")
+            await query.edit_message_text("فرمت دکمه نادرست است!")
+            return
 
-        if expected_chat_id != chat_id or ready_user_id != user_id:
+        expected_chat_id = int(parts[1])
+        ready_user_id = int(parts[2])
+
+        logger.info(f"Parsed data: chat_id={expected_chat_id}, user_id={ready_user_id}")
+
+        if expected_chat_id != chat_id:
+            await query.edit_message_text("این دکمه برای این چت نیست!")
+            return
+
+        if ready_user_id != user_id:
             await query.edit_message_text("این دکمه برای تو نیست!")
             return
 
@@ -85,6 +99,7 @@ async def find_player(update: Update, context: CallbackContext):
         if user_id not in waiting_players[chat_id]:
             waiting_players[chat_id].append(user_id)
             await query.edit_message_text(f"@{username} آماده‌ست. منتظر حریف باش...")
+            logger.info(f"User {username} added to waiting list for chat {chat_id}")
         else:
             await query.answer("شما قبلاً آماده شده‌اید!")
 
@@ -93,6 +108,7 @@ async def find_player(update: Update, context: CallbackContext):
             player1 = waiting_players[chat_id].pop(0)
             player2 = waiting_players[chat_id].pop(0)  # برداشتن نفر دوم
             if player1 == player2:  # مطمئن شو دو نفر متفاوت باشن
+                logger.warning("Attempted to match same player")
                 await query.edit_message_text("لطفاً دوباره امتحان کن!")
                 return
             
@@ -115,6 +131,7 @@ async def find_player(update: Update, context: CallbackContext):
                 text=f"بازی شروع شد! نوبت @{games[game_id]['usernames'][player1]} (❌) هست.",
                 reply_markup=create_board(game_id)
             )
+            logger.info(f"Game started between {games[game_id]['usernames'][player1]} and {username} in chat {chat_id}")
             
     except Exception as e:
         logger.error(f"Error in find_player: {e}")
@@ -183,13 +200,13 @@ def main():
             raise ValueError("توکن در متغیرهای محیطی پیدا نشد!")
             
         app = Application.builder().token(token).build()
-        # اضافه کردن اطمینان از حذف وب‌هوک در صورت وجود
+        # حذف وب‌هوک و پاک کردن آپدیت‌های در انتظار
         app.bot.delete_webhook(drop_pending_updates=True)
         
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_\d+_\d+$"))  # پترن دقیق‌تر
+        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_-\d+_\d+$"))  # پترن دقیق‌تر برای شامل شدن -
         app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن دقیق‌تر
-        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=10)
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
 
