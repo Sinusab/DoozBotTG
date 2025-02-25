@@ -92,11 +92,11 @@ async def find_player(update: Update, context: CallbackContext):
 
         # اگر لیست انتظار برای این چت وجود نداره، بسازیم
         if chat_id not in waiting_players:
-            waiting_players[chat_id] = []
+            waiting_players[chat_id] = set()  # استفاده از set برای جلوگیری از تکرار
 
         # اضافه کردن کاربر به لیست انتظار
         if user_id not in waiting_players[chat_id]:
-            waiting_players[chat_id].append(user_id)
+            waiting_players[chat_id].add(user_id)
             await query.edit_message_text(f"@{username} آماده است. منتظر حریف باشید...")
             logger.info(f"User {username} added to waiting list for chat {chat_id}")
         else:
@@ -104,8 +104,11 @@ async def find_player(update: Update, context: CallbackContext):
 
         # اگر دو نفر آماده باشن، بازی رو شروع کن
         if len(waiting_players[chat_id]) >= 2:
-            player1 = waiting_players[chat_id].pop(0)
-            player2 = waiting_players[chat_id].pop(0)  # برداشتن نفر دوم
+            players = list(waiting_players[chat_id])  # تبدیل set به لیست
+            player1, player2 = players[:2]  # گرفتن دو نفر اول
+            for player in players[:2]:  # حذف دو نفر اول از لیست انتظار
+                waiting_players[chat_id].remove(player)
+            
             if player1 == player2:  # مطمئن شو دو نفر متفاوت باشن
                 logger.warning("Attempted to match same player")
                 await query.edit_message_text("لطفاً دوباره امتحان کن!")
@@ -115,7 +118,7 @@ async def find_player(update: Update, context: CallbackContext):
             games[game_id] = {
                 'board': ['⬜'] * 9,
                 'players': [player1, player2],
-                'current_turn': 0,
+                'current_turn': 0,  # نوبت اول برای بازیکن اول (❌)
                 'player_symbols': {player1: '❌', player2: '⭕'},
                 'usernames': {
                     player1: (await context.bot.get_chat(player1)).username or f"کاربر_{player1}",
@@ -134,38 +137,50 @@ async def find_player(update: Update, context: CallbackContext):
             
     except Exception as e:
         logger.error(f"Error in find_player: {e}")
-        await query.edit_message_text("یه خطا پیش اومد. دوباره امتحان کن!")
+        await query.edit_message_text("یک خطا پیش آمد. لطفاً دوباره امتحان کنید!")
         return
 
 # انجام حرکت در بازی
 async def make_move(update: Update, context: CallbackContext):
     query = update.callback_query
+    logger.info(f"Move callback received: data={query.data}, user_id={query.from_user.id}, chat_id={query.message.chat_id}")
     await query.answer()
     
     user_id = query.from_user.id
     chat_id = query.message.chat_id
     
     try:
-        _, index_str, game_id = query.data.split("_")
-        index = int(index_str)
-        
+        # پارس کردن داده‌های callback
+        parts = query.data.split("_")
+        if len(parts) != 3 or not parts[1].isdigit():
+            logger.error(f"Invalid move callback data structure: {query.data}")
+            await query.answer("داده حرکت نادرست است!")
+            return
+
+        index = int(parts[1])
+        game_id = parts[2]
+
         if game_id not in games:
-            await query.edit_message_text("این بازی دیگه وجود نداره!")
+            logger.error(f"Game not found: {game_id}")
+            await query.edit_message_text("این بازی دیگر وجود ندارد!")
             return
 
         game = games[game_id]
         if game['chat_id'] != chat_id:
-            await query.edit_message_text("این بازی مال چت دیگه‌ست!")
+            logger.error(f"Game chat mismatch: expected {game['chat_id']}, got {chat_id}")
+            await query.edit_message_text("این بازی متعلق به چت دیگری است!")
             return
 
         current_player = game['players'][game['current_turn']]
         next_player = game['players'][(game['current_turn'] + 1) % 2]
 
         if user_id != current_player:
+            logger.warning(f"Wrong turn: user {user_id} tried to move, but it's {current_player}'s turn")
             await query.answer("نوبت شما نیست!")
             return
 
         if game['board'][index] != '⬜':
+            logger.warning(f"Position already taken: index {index}")
             await query.answer("این خانه قبلاً پر شده است!")
             return
 
@@ -180,16 +195,19 @@ async def make_move(update: Update, context: CallbackContext):
                 winner = '@' + game['usernames'][user_id]
                 await query.edit_message_text(f"{winner} برنده شد!")
             del games[game_id]
+            logger.info(f"Game {game_id} ended: {winner if result != 'مساوی' else 'Draw'}")
             return
 
         await query.edit_message_text(
             text=f"نوبت: @{game['usernames'][next_player]} {game['player_symbols'][next_player]}",
             reply_markup=create_board(game_id)
         )
+        logger.info(f"Move made by {game['usernames'][user_id]} at position {index} in game {game_id}")
 
     except Exception as e:
         logger.error(f"Error in make_move: {e}")
-        await query.edit_message_text("یه خطا تو حرکت پیش اومد!")
+        await query.edit_message_text("یک خطا در حرکت پیش آمد. لطفاً دوباره امتحان کنید!")
+        return
 
 # تابع اصلی
 def main():
@@ -204,7 +222,7 @@ def main():
         
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_[-\d]+$"))  # پترن برای دکمه آماده هستم
-        app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن برای حرکت در بازی
+        app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_[-\w]+$"))  # پترن به‌روزرسانی‌شده برای حرکات
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=10)
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
