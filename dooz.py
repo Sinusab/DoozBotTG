@@ -4,6 +4,11 @@ import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler
 import asyncio
+import logging
+
+# تنظیم لاگ برای دیباگ
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # دیکشنری‌های سراسری برای ذخیره وضعیت بازی
 games = {}  # بازی‌های فعال
@@ -52,6 +57,7 @@ async def start(update: Update, context: CallbackContext):
 # پیدا کردن حریف و شروع بازی
 async def find_player(update: Update, context: CallbackContext):
     query = update.callback_query
+    logger.info(f"Callback received: {query.data}")
     await query.answer()  # پاسخ سریع به کلیک کاربر
     
     user_id = query.from_user.id
@@ -59,6 +65,7 @@ async def find_player(update: Update, context: CallbackContext):
     username = query.from_user.username or f"کاربر_{user_id}"
 
     if not query.data.startswith("ready_"):
+        logger.warning("Invalid callback data format")
         return
 
     try:
@@ -78,15 +85,16 @@ async def find_player(update: Update, context: CallbackContext):
         if user_id not in waiting_players[chat_id]:
             waiting_players[chat_id].append(user_id)
             await query.edit_message_text(f"@{username} آماده‌ست. منتظر حریف باش...")
+        else:
+            await query.answer("شما قبلاً آماده شده‌اید!")
 
         # اگر دو نفر آماده باشن، بازی رو شروع کن
         if len(waiting_players[chat_id]) >= 2:
             player1 = waiting_players[chat_id].pop(0)
-            player2 = user_id
+            player2 = waiting_players[chat_id].pop(0)  # برداشتن نفر دوم
             if player1 == player2:  # مطمئن شو دو نفر متفاوت باشن
+                await query.edit_message_text("لطفاً دوباره امتحان کن!")
                 return
-            
-            waiting_players[chat_id] = [uid for uid in waiting_players[chat_id] if uid != user_id]
             
             game_id = str(uuid.uuid4())
             games[game_id] = {
@@ -109,8 +117,9 @@ async def find_player(update: Update, context: CallbackContext):
             )
             
     except Exception as e:
+        logger.error(f"Error in find_player: {e}")
         await query.edit_message_text("یه خطا پیش اومد. دوباره امتحان کن!")
-        print(f"خطا در پیدا کردن بازیکن: {e}")
+        return
 
 # انجام حرکت در بازی
 async def make_move(update: Update, context: CallbackContext):
@@ -163,8 +172,8 @@ async def make_move(update: Update, context: CallbackContext):
         )
 
     except Exception as e:
+        logger.error(f"Error in make_move: {e}")
         await query.edit_message_text("یه خطا تو حرکت پیش اومد!")
-        print(f"خطا در حرکت: {e}")
 
 # تابع اصلی
 def main():
@@ -175,11 +184,11 @@ def main():
             
         app = Application.builder().token(token).build()
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(find_player, pattern=r"ready_\d+_\d+"))
-        app.add_handler(CallbackQueryHandler(make_move, pattern=r"move_\d+_\w+"))
+        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_\d+_\d+$"))  # پترن دقیق‌تر
+        app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن دقیق‌تر
         app.run_polling(allowed_updates=Update.ALL_TYPES)
     except Exception as e:
-        print(f"خطا در شروع ربات: {e}")
+        logger.error(f"Error starting bot: {e}")
 
 if __name__ == "__main__":
     main()
