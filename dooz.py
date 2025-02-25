@@ -6,6 +6,7 @@ from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQ
 # ذخیره بازی‌ها و لیست انتظار
 games = {}
 waiting_players = []
+TOKEN = os.getenv("TOKEN")
 
 # ایجاد تخته بازی
 def create_board(game_id):
@@ -159,7 +160,7 @@ async def make_move(update: Update, context: CallbackContext):
 
 # تابع اصلی
 def main():
-    app = Application.builder().token("7688709649:AAG0cE9A8S-6BkYhIkGW-sySRgEpB4YjiLs").build()
+    app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(find_player, pattern="ready_to_play"))
