@@ -43,18 +43,15 @@ def check_winner(board):
 
 # دستور شروع بازی
 async def start(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
     chat_id = update.message.chat_id
-    username = update.message.from_user.username or f"کاربر_{user_id}"
-
     # ساخت دکمه‌ای که برای همه کاربران در چت قابل استفاده باشه
     keyboard = [[InlineKeyboardButton("آماده هستم", callback_data=f"ready_{chat_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"@{username}، برای شروع بازی روی دکمه کلیک کن!",
+        "برای شروع بازی روی دکمه کلیک کنید!",
         reply_markup=reply_markup
     )
-    logger.info(f"User {username} started the bot in chat {chat_id}")
+    logger.info(f"Bot started in chat {chat_id}")
 
 # پیدا کردن حریف و شروع بازی
 async def find_player(update: Update, context: CallbackContext):
@@ -100,7 +97,7 @@ async def find_player(update: Update, context: CallbackContext):
         # اضافه کردن کاربر به لیست انتظار
         if user_id not in waiting_players[chat_id]:
             waiting_players[chat_id].append(user_id)
-            await query.edit_message_text(f"@{username} آماده‌ست. منتظر حریف باش...")
+            await query.edit_message_text(f"@{username} آماده است. منتظر حریف باشید...")
             logger.info(f"User {username} added to waiting list for chat {chat_id}")
         else:
             await query.answer("شما قبلاً آماده شده‌اید!")
@@ -122,7 +119,7 @@ async def find_player(update: Update, context: CallbackContext):
                 'player_symbols': {player1: '❌', player2: '⭕'},
                 'usernames': {
                     player1: (await context.bot.get_chat(player1)).username or f"کاربر_{player1}",
-                    player2: username
+                    player2: (await context.bot.get_chat(player2)).username or f"کاربر_{player2}"
                 },
                 'chat_id': chat_id
             }
@@ -130,10 +127,10 @@ async def find_player(update: Update, context: CallbackContext):
             await query.edit_message_text("بازی شروع شد!")
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"بازی شروع شد! نوبت @{games[game_id]['usernames'][player1]} (❌) هست.",
+                text=f"بازی شروع شد! نوبت @{games[game_id]['usernames'][player1]} (❌) است.",
                 reply_markup=create_board(game_id)
             )
-            logger.info(f"Game started between {games[game_id]['usernames'][player1]} and {username} in chat {chat_id}")
+            logger.info(f"Game started between {games[game_id]['usernames'][player1]} and {games[game_id]['usernames'][player2]} in chat {chat_id}")
             
     except Exception as e:
         logger.error(f"Error in find_player: {e}")
@@ -165,11 +162,11 @@ async def make_move(update: Update, context: CallbackContext):
         next_player = game['players'][(game['current_turn'] + 1) % 2]
 
         if user_id != current_player:
-            await query.answer("نوبت تو نیست!")
+            await query.answer("نوبت شما نیست!")
             return
 
         if game['board'][index] != '⬜':
-            await query.answer("این خونه قبلاً پر شده!")
+            await query.answer("این خانه قبلاً پر شده است!")
             return
 
         game['board'][index] = game['player_symbols'][user_id]
@@ -206,8 +203,8 @@ def main():
         app.bot.delete_webhook(drop_pending_updates=True)
         
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_[-\d]+$"))  # پترن جدید فقط برای chat_id
-        app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن دقیق‌تر
+        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_[-\d]+$"))  # پترن برای دکمه آماده هستم
+        app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن برای حرکت در بازی
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=10)
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
