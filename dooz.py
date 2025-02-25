@@ -73,13 +73,26 @@ async def find_player(update: Update, context: CallbackContext):
     try:
         # پارسیگ دقیق‌تر داده‌های callback
         parts = query.data.split("_")
-        if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+        if len(parts) != 3:
             logger.error(f"Invalid callback data structure: {query.data}")
             await query.edit_message_text("فرمت دکمه نادرست است!")
             return
 
-        expected_chat_id = int(parts[1])
-        ready_user_id = int(parts[2])
+        # تبدیل chat_id به عدد (حتی اگر با خط تیره شروع بشه)
+        try:
+            expected_chat_id = int(parts[1])
+        except ValueError:
+            logger.error(f"Invalid chat_id format in callback data: {parts[1]}")
+            await query.edit_message_text("فرمت چت نادرست است!")
+            return
+
+        # تبدیل user_id به عدد
+        try:
+            ready_user_id = int(parts[2])
+        except ValueError:
+            logger.error(f"Invalid user_id format in callback data: {parts[2]}")
+            await query.edit_message_text("فرمت کاربر نادرست است!")
+            return
 
         logger.info(f"Parsed data: chat_id={expected_chat_id}, user_id={ready_user_id}")
 
@@ -204,7 +217,7 @@ def main():
         app.bot.delete_webhook(drop_pending_updates=True)
         
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_-\d+_\d+$"))  # پترن دقیق‌تر برای شامل شدن -
+        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_[-\d]+_\d+$"))  # پترن دقیق‌تر برای شامل شدن اعداد منفی
         app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن دقیق‌تر
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=10)
     except Exception as e:
