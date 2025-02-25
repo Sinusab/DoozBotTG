@@ -3,12 +3,13 @@ import random
 import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler
+import asyncio
 
-# ذخیره بازی‌ها و لیست انتظار برای هر چت
+# دیکشنری‌های سراسری برای ذخیره وضعیت بازی
 games = {}  # بازی‌های فعال
-waiting_players = {}  # لیست انتظار برای هر چت (chat_id -> [user_ids])
+waiting_players = {}  # بازیکنان در انتظار برای هر چت
 
-# ایجاد تخته بازی
+# ساخت تخته بازی
 def create_board(game_id):
     board = games[game_id]['board']
     buttons = []
@@ -41,133 +42,144 @@ async def start(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     username = update.message.from_user.username or f"کاربر_{user_id}"
 
-    # دکمه آماده شدن (بدون حذف بازی‌های قبلی)
     keyboard = [[InlineKeyboardButton("آماده هستم", callback_data=f"ready_{chat_id}_{user_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(f"@{username}، برای شروع بازی روی دکمه کلیک کنید.", reply_markup=reply_markup)
+    await update.message.reply_text(
+        f"@{username}، برای شروع بازی روی دکمه کلیک کن!",
+        reply_markup=reply_markup
+    )
 
-# پیدا کردن بازیکن دوم و شروع بازی
+# پیدا کردن حریف و شروع بازی
 async def find_player(update: Update, context: CallbackContext):
     query = update.callback_query
+    await query.answer()  # پاسخ سریع به کلیک کاربر
+    
     user_id = query.from_user.id
     chat_id = query.message.chat_id
     username = query.from_user.username or f"کاربر_{user_id}"
 
     if not query.data.startswith("ready_"):
-        await query.answer("داده‌های ورودی اشتباه است.")
         return
 
-    # استخراج chat_id و user_id از callback_data
-    parts = query.data.split("_")
-    if len(parts) != 3:
-        await query.answer("داده نادرست است!")
-        return
-    expected_chat_id = int(parts[1])
-    ready_user_id = int(parts[2])
+    try:
+        _, chat_id_str, user_id_str = query.data.split("_")
+        expected_chat_id = int(chat_id_str)
+        ready_user_id = int(user_id_str)
 
-    if expected_chat_id != chat_id:
-        await query.answer("این دکمه برای چت دیگری است!")
-        return
-    if ready_user_id != user_id:
-        await query.answer("این دکمه برای شما نیست!")
-        return
+        if expected_chat_id != chat_id or ready_user_id != user_id:
+            await query.edit_message_text("این دکمه برای تو نیست!")
+            return
 
-    # اگه این چت لیست انتظار نداره، بسازیم
-    if chat_id not in waiting_players:
-        waiting_players[chat_id] = []
+        # اگر لیست انتظار برای این چت وجود نداره، بسازیم
+        if chat_id not in waiting_players:
+            waiting_players[chat_id] = []
 
-    # اگه کاربر توی لیست انتظار نیست، اضافه‌اش کنیم
-    if user_id not in waiting_players[chat_id]:
-        waiting_players[chat_id].append(user_id)
-        await query.edit_message_text(f"@{username} آماده است. منتظر بازیکن دوم باشید...")
-    else:
-        # اگه کاربر توی لیست انتظار بود و نفر دیگه‌ای هم هست، جفتشون کنیم
-        if len(waiting_players[chat_id]) > 1:
-            player1 = waiting_players[chat_id].pop(0)  # نفر اول رو برداریم
-            if player1 == user_id:  # اگه خود کاربر اول لیست بود، نفر بعدی رو برداریم
-                player1 = waiting_players[chat_id].pop(0)
+        # اضافه کردن کاربر به لیست انتظار
+        if user_id not in waiting_players[chat_id]:
+            waiting_players[chat_id].append(user_id)
+            await query.edit_message_text(f"@{username} آماده‌ست. منتظر حریف باش...")
+
+        # اگر دو نفر آماده باشن، بازی رو شروع کن
+        if len(waiting_players[chat_id]) >= 2:
+            player1 = waiting_players[chat_id].pop(0)
+            player2 = user_id
+            if player1 == player2:  # مطمئن شو دو نفر متفاوت باشن
+                return
+            
+            waiting_players[chat_id] = [uid for uid in waiting_players[chat_id] if uid != user_id]
+            
             game_id = str(uuid.uuid4())
             games[game_id] = {
                 'board': ['⬜'] * 9,
-                'players': [player1, user_id],
+                'players': [player1, player2],
                 'current_turn': 0,
-                'player_symbols': {player1: '❌', user_id: '⭕'},
-                'usernames': {player1: (await context.bot.get_chat(player1)).username or f"کاربر_{player1}",
-                              user_id: username},
+                'player_symbols': {player1: '❌', player2: '⭕'},
+                'usernames': {
+                    player1: (await context.bot.get_chat(player1)).username or f"کاربر_{player1}",
+                    player2: username
+                },
                 'chat_id': chat_id
             }
+            
             await query.edit_message_text("بازی شروع شد!")
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"بازی شروع شد! نوبت @{games[game_id]['usernames'][player1]} ❌ است.",
+                text=f"بازی شروع شد! نوبت @{games[game_id]['usernames'][player1]} (❌) هست.",
                 reply_markup=create_board(game_id)
             )
-        else:
-            await query.answer("منتظر بازیکن دوم باشید!")
+            
+    except Exception as e:
+        await query.edit_message_text("یه خطا پیش اومد. دوباره امتحان کن!")
+        print(f"خطا در پیدا کردن بازیکن: {e}")
 
-# حرکت در بازی
+# انجام حرکت در بازی
 async def make_move(update: Update, context: CallbackContext):
     query = update.callback_query
+    await query.answer()
+    
     user_id = query.from_user.id
     chat_id = query.message.chat_id
-    game_id = query.data.split('_')[2]
-    index = int(query.data.split('_')[1])
+    
+    try:
+        _, index_str, game_id = query.data.split("_")
+        index = int(index_str)
+        
+        if game_id not in games:
+            await query.edit_message_text("این بازی دیگه وجود نداره!")
+            return
 
-    if game_id not in games:
-        await query.answer("این بازی وجود ندارد!")
-        return
+        game = games[game_id]
+        if game['chat_id'] != chat_id:
+            await query.edit_message_text("این بازی مال چت دیگه‌ست!")
+            return
 
-    game = games[game_id]
-    if game['chat_id'] != chat_id:
-        await query.answer("این بازی مربوط به چت دیگری است!")
-        return
+        current_player = game['players'][game['current_turn']]
+        next_player = game['players'][(game['current_turn'] + 1) % 2]
 
-    current_player = game['players'][game['current_turn']]
-    next_player = game['players'][(game['current_turn'] + 1) % 2]
+        if user_id != current_player:
+            await query.answer("نوبت تو نیست!")
+            return
 
-    if user_id != current_player:
-        await query.answer("نوبت شما نیست!")
-        return
+        if game['board'][index] != '⬜':
+            await query.answer("این خونه قبلاً پر شده!")
+            return
 
-    if game['board'][index] != '⬜':
-        await query.answer("این خانه قبلاً پر شده است!")
-        return
+        game['board'][index] = game['player_symbols'][user_id]
+        game['current_turn'] = (game['current_turn'] + 1) % 2
 
-    game['board'][index] = game['player_symbols'][user_id]
-    game['current_turn'] = (game['current_turn'] + 1) % 2
+        result = check_winner(game['board'])
+        if result:
+            if result == 'مساوی':
+                await query.edit_message_text("بازی مساوی شد!")
+            else:
+                winner = '@' + game['usernames'][user_id]
+                await query.edit_message_text(f"{winner} برنده شد!")
+            del games[game_id]
+            return
 
-    result = check_winner(game['board'])
-    if result:
-        if result == 'مساوی':
-            await query.edit_message_text("بازی مساوی شد!", reply_markup=None)
-            await context.bot.send_message(chat_id=chat_id, text="بازی مساوی شد!", reply_markup=None)
-        else:
-            winner = '@' + game['usernames'][user_id]
-            await query.edit_message_text(f"{winner} برنده شد!", reply_markup=None)
-            await context.bot.send_message(chat_id=chat_id, text=f"{winner} برنده شد!", reply_markup=None)
-        del games[game_id]
-        return
+        await query.edit_message_text(
+            text=f"نوبت: @{game['usernames'][next_player]} {game['player_symbols'][next_player]}",
+            reply_markup=create_board(game_id)
+        )
 
-    await query.edit_message_text(
-        text=f"نوبت @{game['usernames'][next_player]} {game['player_symbols'][next_player]}",
-        reply_markup=create_board(game_id)
-    )
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"نوبت @{game['usernames'][next_player]} {game['player_symbols'][next_player]}",
-        reply_markup=create_board(game_id)
-    )
+    except Exception as e:
+        await query.edit_message_text("یه خطا تو حرکت پیش اومد!")
+        print(f"خطا در حرکت: {e}")
 
 # تابع اصلی
 def main():
     try:
-        app = Application.builder().token(os.getenv("TOKEN")).build()
+        token = os.getenv("TOKEN")
+        if not token:
+            raise ValueError("توکن در متغیرهای محیطی پیدا نشد!")
+            
+        app = Application.builder().token(token).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CallbackQueryHandler(find_player, pattern=r"ready_\d+_\d+"))
         app.add_handler(CallbackQueryHandler(make_move, pattern=r"move_\d+_\w+"))
-        app.run_polling()
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
     except Exception as e:
-        print(f"خطا در اجرا: {e}")
+        print(f"خطا در شروع ربات: {e}")
 
 if __name__ == "__main__":
     main()
