@@ -47,7 +47,8 @@ async def start(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     username = update.message.from_user.username or f"کاربر_{user_id}"
 
-    keyboard = [[InlineKeyboardButton("آماده هستم", callback_data=f"ready_{chat_id}_{user_id}")]]
+    # ساخت دکمه‌ای که برای همه کاربران در چت قابل استفاده باشه
+    keyboard = [[InlineKeyboardButton("آماده هستم", callback_data=f"ready_{chat_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         f"@{username}، برای شروع بازی روی دکمه کلیک کن!",
@@ -71,9 +72,9 @@ async def find_player(update: Update, context: CallbackContext):
         return
 
     try:
-        # پارسیگ دقیق‌تر داده‌های callback
+        # پارسیگ دقیق‌تر داده‌های callback (فقط chat_id)
         parts = query.data.split("_")
-        if len(parts) != 3:
+        if len(parts) != 2:
             logger.error(f"Invalid callback data structure: {query.data}")
             await query.edit_message_text("فرمت دکمه نادرست است!")
             return
@@ -86,22 +87,10 @@ async def find_player(update: Update, context: CallbackContext):
             await query.edit_message_text("فرمت چت نادرست است!")
             return
 
-        # تبدیل user_id به عدد
-        try:
-            ready_user_id = int(parts[2])
-        except ValueError:
-            logger.error(f"Invalid user_id format in callback data: {parts[2]}")
-            await query.edit_message_text("فرمت کاربر نادرست است!")
-            return
-
-        logger.info(f"Parsed data: chat_id={expected_chat_id}, user_id={ready_user_id}")
+        logger.info(f"Parsed data: chat_id={expected_chat_id}")
 
         if expected_chat_id != chat_id:
             await query.edit_message_text("این دکمه برای این چت نیست!")
-            return
-
-        if ready_user_id != user_id:
-            await query.edit_message_text("این دکمه برای تو نیست!")
             return
 
         # اگر لیست انتظار برای این چت وجود نداره، بسازیم
@@ -217,7 +206,7 @@ def main():
         app.bot.delete_webhook(drop_pending_updates=True)
         
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_[-\d]+_\d+$"))  # پترن دقیق‌تر برای شامل شدن اعداد منفی
+        app.add_handler(CallbackQueryHandler(find_player, pattern=r"^ready_[-\d]+$"))  # پترن جدید فقط برای chat_id
         app.add_handler(CallbackQueryHandler(make_move, pattern=r"^move_\d+_\w+$"))  # پترن دقیق‌تر
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=10)
     except Exception as e:
