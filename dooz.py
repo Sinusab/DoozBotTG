@@ -2,11 +2,11 @@ import random
 import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler
+import os
 
 # ذخیره بازی‌ها و لیست انتظار
 games = {}
 waiting_players = []
-TOKEN = os.getenv("TOKEN")
 
 # ایجاد تخته بازی
 def create_board(game_id):
@@ -159,14 +159,17 @@ async def make_move(update: Update, context: CallbackContext):
     )
 
 # تابع اصلی
+
 def main():
-    app = Application.builder().token(TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(find_player, pattern="ready_to_play"))
-    app.add_handler(CallbackQueryHandler(make_move, pattern=r"move_\d+_\w+"))
-    
-    app.run_polling()
+    TOKEN = os.getenv("TOKEN")
+    try:
+        app = Application.builder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CallbackQueryHandler(find_player, pattern="ready_to_play"))
+        app.add_handler(CallbackQueryHandler(make_move, pattern=r"move_\d+_\w+"))
+        app.run_polling()
+    except Exception as e:
+        print(f"خطا در اجرا: {e}")
 
 if __name__ == "__main__":
     main()
