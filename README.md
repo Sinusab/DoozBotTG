@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/23841176/README.md)
 # 🎮 DoozBotTG  
 A modern, fully asynchronous Telegram Tic-Tac-Toe bot built with **Python** and **python-telegram-bot v20+**, featuring clean architecture, modular game logic, and an interactive inline keyboard interface.
 
